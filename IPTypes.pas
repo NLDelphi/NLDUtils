@@ -1,3 +1,20 @@
+{ *************************************************************************** }
+{                                                                             }
+{ IPTypes  -  www.nldelphi.com Open Source Delphi runtime library             }
+{                                                                             }
+{ Initiator: Albert de Weerd (aka NGLN)                                       }
+{ License: Free to use, free to modify                                        }
+{ Website: None                                                               }
+{ SVN path: http://svn.nldelphi.com/nldelphi/opensource/ngln/                 }
+{                                                                             }
+{ *************************************************************************** }
+{                                                                             }
+{ Last edit by: Albert de Weerd                                               }
+{ Date: August 21, 2010                                                       }
+{ Version: 1.0                                                                }
+{                                                                             }
+{ *************************************************************************** }
+
 unit IPTypes;
 
 interface
@@ -83,7 +100,7 @@ const
   ZeroIPv6: TIPv6 = (H: 0; G: 0; F: 0; E: 0; D: 0; C: 0; B: 0; A: 0);
 
 var
-  IPv6CharCase: TCharCase = ccUpperCase;
+  IPCharCase: TCharCase = ccUpperCase;
 
 implementation
 
@@ -598,7 +615,7 @@ end;
 
 procedure CheckCase(var S: String);
 begin
-  if IPv6CharCase = ccLowerCase then
+  if IPCharCase = ccLowerCase then
     S := LowerCase(S);
 end;
 
