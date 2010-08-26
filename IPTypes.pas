@@ -10,8 +10,8 @@
 { *************************************************************************** }
 {                                                                             }
 { Last edit by: Albert de Weerd                                               }
-{ Date: August 21, 2010                                                       }
-{ Version: 1.0                                                                }
+{ Date: August 27, 2010                                                       }
+{ Version: 1.1                                                                }
 {                                                                             }
 { *************************************************************************** }
 
@@ -20,13 +20,11 @@ unit IPTypes;
 interface
 
 uses
-  Classes, Variants, TypInfo, SysUtils, StrUtils, ShellAPI, Windows;
-
-// See also: VarUtils, VarConv, VarCmplx, FMTBcd
+  Classes, Variants, TypInfo, SysUtils, StrUtils, ShellAPI, Windows, Math;
 
 const
-  IPv4BitSize = 32;
-  IPv6BitSize = 128;
+  IPv4BitSize = SizeOf(Byte) * 4 * 8;
+  IPv6BitSize = SizeOf(Word) * 8 * 8;
   DefPortNumber = 80;
   DefProtocol = 'http';
 
@@ -47,7 +45,6 @@ type
     case Integer of
       0: (H, G, F, E, D, C, B, A: Word);
       1: (Groups: TIPv6WordArray);
-      3: (Left, Right: Int64);
   end;
 
   TCharCase = (ccUpperCase, ccLowerCase);
@@ -65,8 +62,22 @@ function VarIPv6Create(const AIPv6: TIPv6): Variant; overload;
 function VarIPv6Create(const Groups: TIPv6WordArray): Variant; overload;
 function VarIPv6Create(const S: String): Variant; overload;
 
+function CardinalToIPv4(AValue: Cardinal): TIPv4;
+function DoubleToIPv4(const AValue: Double): TIPv4;
+function ExtendedToIPv4(const AValue: Extended): TIPv4;
+function SingleToIPv4(const AValue: Single): TIPv4;
+function StrToIPv4(const S: String): TIPv4;
+function TryVarToIPv4(const AValue: Variant; out AIPv4: TIPv4): Boolean;
+function VarIsIPv4(const AValue: Variant): Boolean;
+function VarToIPv4(const AValue: Variant): TIPv4;
+
 function IPv4Compare(const AIPv41, AIPv42: TIPv4): Integer;
+procedure IPv4ToBits(const AIPv4: TIPv4; ABits: TBits);
+function IPv4ToCardinal(const AIPv4: TIPv4): Cardinal;
+function IPv4ToDouble(const AIPv4: TIPv4): Double;
+function IPv4ToExtended(const AIPv4: TIPv4): Extended;
 function IPv4ToIPv6(const AIPv4: TIPv4): TIPv6;
+function IPv4ToSingle(const AIPv4: TIPv4): Single;
 function IPv4ToStr(const AIPv4: TIPv4): String;
 function IPv4ToStrHex(const AIPv4: TIPv4): String;
 function IPv4ToStrOutwr(const AIPv4: TIPv4): String;
@@ -74,9 +85,20 @@ function IPv4ToURL(const AIPv4: TIPv4; const Protocol: String = DefProtocol;
   const PortNumber: Word = DefPortNumber): String;
 function IPv4ToVar(const AIPv4: TIPv4): Variant;
 
+function DoubleToIPv6(const AValue: Double): TIPv6;
+function ExtendedToIPv6(const AValue: Extended): TIPv6;
+function SingleToIPv6(const AValue: Single): TIPv6;
+function StrToIPv6(const S: String): TIPv6;
+function TryVarToIPv6(const AValue: Variant; out AIPv6: TIPv6): Boolean;
+function VarIsIPv6(const AValue: Variant): Boolean;
+function VarToIPv6(const AValue: Variant): TIPv6;
+
 function IPv6Compare(const AIPv61, AIPv62: TIPv6): Integer;
 procedure IPv6ToBits(const AIPv6: TIPv6; ABits: TBits);
+function IPv6ToDouble(const AIPv6: TIPv6): Double;
+function IPv6ToExtended(const AIPv6: TIPv6): Extended;
 function IPv6ToIPv4(const AIPv6: TIPv6): TIPv4;
+function IPv6ToSingle(const AIPv6: TIPv6): Single;
 function IPv6ToStr(const AIPv6: TIPv6): String;
 function IPv6ToStrCompr(const AIPv6: TIPv6): String;
 function IPv6ToStrOutwr(const AIPv6: TIPv6): String;
@@ -84,16 +106,8 @@ function IPv6ToURL(const AIPv6: TIPv6; const Protocol: String = DefProtocol;
   const PortNumber: Word = DefPortNumber): String;
 function IPv6ToVar(const AIPv6: TIPv6): Variant;
 
-function StrToIPv4(const S: String): TIPv4;
-function StrToIPv6(const S: String): TIPv6;
-
-function TryVarToIPv4(const AValue: Variant; out AIPv4: TIPv4): Boolean;
-function TryVarToIPv6(const AValue: Variant; out AIPv6: TIPv6): Boolean;
-
-function VarIsIPv4(const AValue: Variant): Boolean;
-function VarIsIPv6(const AValue: Variant): Boolean;
-function VarToIPv4(const AValue: Variant): TIPv4;
-function VarToIPv6(const AValue: Variant): TIPv6;
+function IPv6AddOp(const Left, Right: TIPv6): TIPv6;
+function IPv6SubtractOp(const Left, Right: TIPv6): TIPv6;
 
 const
   ZeroIPv4: TIPv4 = (D: 0; C: 0; B: 0; A: 0);
@@ -106,8 +120,8 @@ implementation
 
 const
   SInvalidIPv4Value = '''%s'' is not a valid IPv4 address';
-  SInvalidIPv6Value = '''%s'' is not a valid IPv6 address';
   SInvalidIPv4FormatType = 'Invalid format type for IPv4';
+  SInvalidIPv6Value = '''%s'' is not a valid IPv6 address';
   SInvalidIPv6FormatType = 'Invalid format type for IPv6';
 
 type
@@ -129,6 +143,8 @@ type
 
   TIPv6VariantType = class(TInvokeableVariantType)
   public
+    procedure BinaryOp(var Left: TVarData; const Right: TVarData;
+      const Operator: TVarOp); override;
     procedure Cast(var Dest: TVarData; const Source: TVarData); override;
     procedure CastTo(var Dest: TVarData; const Source: TVarData;
       const AVarType: Word); override;
@@ -150,23 +166,29 @@ type
 var
   IPv4VariantType: TIPv4VariantType = nil;
   IPv6VariantType: TIPv6VariantType = nil;
+  IPv6MaxOrdValue: Extended = 0;
 
 type
   TIPv6Object = class(TPersistent)
   private
     FIPv6: TIPv6;
+    function GetAsDouble: Double;
+    function GetAsExtended: Extended;
+    function GetAsSingle: Single;
     function GetAsString: String;
     function GetAsStringCompressed: String;
     function GetAsStringOutwritten: String;
     function GetGroups(Index: T8): Word;
+    procedure SetAsExtended(const Value: Extended);
+    procedure SetAsDouble(const Value: Double);
+    procedure SetAsSingle(const Value: Single);
     procedure SetAsString(const Value: String);
-    procedure SetGroups(Index: T8; const Value: Word);
+    procedure SetGroups(Index: T8; Value: Word);
   public
     function AsURL: String;
-    function Compare(const Value: TIPv6Object): TVarCompareResult;
-    constructor Create; overload;
+    function Compare(Value: TIPv6Object): TVarCompareResult;
     constructor Create(const AIPv6: TIPv6); overload;
-    constructor Create(const AIPv6Data: TIPv6Object); overload;
+    constructor Create(AIPv6Object: TIPv6Object); overload;
     constructor Create(const S: String); overload;
     function Equals(const AValue: Variant): Boolean; overload;
     function Equals(const AIPv6: TIPv6): Boolean; overload;
@@ -176,6 +198,9 @@ type
     property Groups[Index: T8]: Word read GetGroups write SetGroups;
     property IPv6: TIPv6 read FIPv6 write FIPv6;
   published
+    property AsDouble: Double read GetAsDouble write SetAsDouble;
+    property AsExtended: Extended read GetAsExtended write SetAsExtended;
+    property AsSingle: Single read GetAsSingle write SetAsSingle;
     property AsString: String read GetAsString write SetAsString;
     property AsStringCompressed: String read GetAsStringCompressed
       write SetAsString;
@@ -196,6 +221,16 @@ type
     VIPv6: TIPv6Object;
     Reserved4: LongWord;
   end;
+
+function varIPv4: TVarType;
+begin
+  Result := IPv4VariantType.VarType;
+end;
+
+function varIPv6: TVarType;
+begin
+  Result := IPv6VariantType.VarType;
+end;
 
 procedure IPv4Error(const Message: String);
 begin
@@ -224,14 +259,9 @@ begin
   Result := IPv6ToURL(FIPv6);
 end;
 
-function TIPv6Object.Compare(const Value: TIPv6Object): TVarCompareResult;
+function TIPv6Object.Compare(Value: TIPv6Object): TVarCompareResult;
 begin
   Result := TVarCompareResult(IPv6Compare(Self.FIPv6, Value.FIPv6) + 1);
-end;
-
-constructor TIPv6Object.Create;
-begin
-  Create(ZeroIPv6);
 end;
 
 constructor TIPv6Object.Create(const AIPv6: TIPv6);
@@ -240,9 +270,9 @@ begin
   Move(AIPv6, FIPv6, SizeOf(TIPv6));
 end;
 
-constructor TIPv6Object.Create(const AIPv6Data: TIPv6Object);
+constructor TIPv6Object.Create(AIPv6Object: TIPv6Object);
 begin
-  Create(AIPv6Data.FIPv6);
+  Create(AIPv6Object.FIPv6);
 end;
 
 constructor TIPv6Object.Create(const S: String);
@@ -270,6 +300,21 @@ end;
 procedure TIPv6Object.Follow;
 begin
   ShellExecute(0, 'Open', PChar(IPv6ToURL(FIPv6)), nil, nil, SW_SHOWNORMAL);
+end;
+
+function TIPv6Object.GetAsDouble: Double;
+begin
+  Result := IPv6ToDouble(FIPv6);
+end;
+
+function TIPv6Object.GetAsExtended: Extended;
+begin
+  Result := IPv6ToExtended(FIPv6);
+end;
+
+function TIPv6Object.GetAsSingle: Single;
+begin
+  Result := IPv6ToSingle(FIPv6);
 end;
 
 function TIPv6Object.GetAsString: String;
@@ -302,12 +347,27 @@ begin
   Result := Equals(ZeroIpv6);
 end;
 
+procedure TIPv6Object.SetAsDouble(const Value: Double);
+begin
+  FIPv6 := DoubleToIPv6(Value);
+end;
+
+procedure TIPv6Object.SetAsExtended(const Value: Extended);
+begin
+  FIPv6 := ExtendedToIPv6(Value);
+end;
+
+procedure TIPv6Object.SetAsSingle(const Value: Single);
+begin
+  FIPv6 := SingleToIPv6(Value);
+end;
+
 procedure TIPv6Object.SetAsString(const Value: String);
 begin
   FIPv6 := StrToIPv6(Value);
 end;
 
-procedure TIPv6Object.SetGroups(Index: T8; const Value: Word);
+procedure TIPv6Object.SetGroups(Index: T8; Value: Word);
 begin
   if FIPv6.Groups[High(T8) - Index] <> Value then
     FIPv6.Groups[High(T8) - Index] := Value;
@@ -341,7 +401,7 @@ begin
         begin
           VarDataClear(Dest);
           Dest.VType := varDouble;
-          Dest.VDouble := TIPv4VarData(Source).VIPv4.Value;
+          Dest.VDouble := IPv4ToDouble(TIPv4VarData(Source).VIPv4);
         end;
       varInt64:
         begin
@@ -357,6 +417,12 @@ begin
         end;
       varOleStr:
         VarDataFromOleStr(Dest, IPv4ToStr(TIPv4VarData(Source).VIPv4));
+      varSingle:
+        begin
+          VarDataClear(Dest);
+          Dest.VType := varSingle;
+          Dest.VSingle := IPv4ToSingle(TIPv4VarData(Source).VIPv4);
+        end;
       varString:
         VarDataFromStr(Dest, IPv4ToStr(TIPv4VarData(Source).VIPv4));
     else
@@ -414,7 +480,15 @@ function TIPv4VariantType.GetProperty(var Dest: TVarData; const V: TVarData;
   const Name: String): Boolean;
 begin
   Result := True;
-  if Name = 'ASSTRING' then
+  if Name = 'ASCARDINAL' then
+    Variant(Dest) := IPv4ToCardinal(TIPv4VarData(V).VIPv4)
+  else if Name = 'ASEXTENDED' then
+    Variant(Dest) := IPv4ToExtended(TIPv4VarData(V).VIPv4)
+  else if Name = 'ASDOUBLE' then
+    Variant(Dest) := IPv4ToDouble(TIPv4VarData(V).VIPv4)
+  else if Name = 'ASSINGLE' then
+    Variant(Dest) := IPv4ToSingle(TIPv4VarData(V).VIPv4)
+  else if Name = 'ASSTRING' then
     Variant(Dest) := IPv4ToStr(TIPv4VarData(V).VIPv4)
   else if Name = 'ASSTRINGOUTWRITTEN' then
     Variant(Dest) := IPv4ToStrOutwr(TIPv4VarData(V).VIPv4)
@@ -423,6 +497,21 @@ begin
 end;
 
 { TIPv6VariantType }
+
+procedure TIPv6VariantType.BinaryOp(var Left: TVarData; const Right: TVarData;
+  const Operator: TVarOp);
+begin
+  case Operator of
+    opAdd:
+      with TIPv6VarData(Left).VIPv6 do
+        IPv6 := IPv6AddOp(IPv6, TIPv6VarData(Right).VIPv6.IPv6);
+    opSubtract:
+      with TIPv6VarData(Left).VIPv6 do
+        IPv6 := IPv6SubtractOp(IPv6, TIPv6VarData(Right).VIPv6.IPv6);
+  else
+    inherited BinaryOp(Left, Right, Operator);
+  end;
+end;
 
 procedure TIPv6VariantType.Cast(var Dest: TVarData; const Source: TVarData);
 var
@@ -530,7 +619,13 @@ function TIPv6VariantType.GetProperty(var Dest: TVarData; const V: TVarData;
   const Name: String): Boolean;
 begin
   Result := True;
-  if Name = 'ASSTRING' then
+  if Name = 'ASEXTENDED' then
+    Variant(Dest) := TIPv6VarData(V).VIPv6.AsExtended
+  else if Name = 'ASDOUBLE' then
+    Variant(Dest) := TIPv6VarData(V).VIPv6.AsDouble
+  else if Name = 'ASSINGLE' then
+    Variant(Dest) := TIPv6VarData(V).VIPv6.AsSingle
+  else if Name = 'ASSTRING' then
     Variant(Dest) := TIPv6VarData(V).VIPv6.AsString
   else if Name = 'ASSTRINGCOMPRESSED' then
     Variant(Dest) := TIPv6VarData(V).VIPv6.AsStringCompressed
@@ -544,7 +639,13 @@ function TIPv6VariantType.SetProperty(const V: TVarData; const Name: String;
   const Value: TVarData): Boolean;
 begin
   Result := True;
-  if Name = 'ASSTRING' then
+  if Name = 'ASEXTENDED' then
+    TIPv6VarData(V).VIPv6.AsExtended := Variant(Value)
+  else if Name = 'ASDOUBLE' then
+    TIPv6VarData(V).VIPv6.AsDouble := Variant(Value)
+  else if Name = 'ASSINGLE' then
+    TIPv6VarData(V).VIPv6.AsSingle := Variant(Value)
+  else if Name = 'ASSTRING' then
     TIPv6VarData(V).VIPv6.AsString := Variant(Value)
   else if Name = 'ASSTRINGCOMPRESSED' then
     TIPv6VarData(V).VIPv6.AsStringCompressed := Variant(Value)
@@ -552,16 +653,6 @@ begin
     TIPv6VarData(V).VIPv6.AsStringOutWritten := Variant(Value)
   else
     Result := inherited SetProperty(V, Name, Value);
-end;
-
-function varIPv4: TVarType;
-begin
-  Result := IPv4VariantType.VarType;
-end;
-
-function varIPv6: TVarType;
-begin
-  Result := IPv6VariantType.VarType;
 end;
 
 { IPv6 variant create routines }
@@ -619,6 +710,92 @@ begin
     S := LowerCase(S);
 end;
 
+function CardinalToIPv4(AValue: Cardinal): TIPv4;
+begin
+  Result.Value := AValue;
+end;
+
+function DoubleToIPv4(const AValue: Double): TIPv4;
+begin
+  Result.Value := Round(AValue * High(Cardinal));
+end;
+
+function ExtendedToIPv4(const AValue: Extended): TIPv4;
+begin
+  Result.Value := Round(AValue * High(Cardinal));
+end;
+
+function SingleToIPv4(const AValue: Single): TIPv4;
+begin
+  Result.Value := Round(AValue * High(Cardinal));
+end;
+
+function StrToIPv4(const S: String): TIPv4;
+var
+  SIP: String;
+  Start: Integer;
+  I: T4;
+  Index: Integer;
+  Count: Integer;
+  SGroup: String;
+  G: Integer;
+begin
+  SIP := S + '.';
+  Start := 1;
+  for I := High(T4) downto Low(T4) do
+  begin
+    Index := PosEx('.', SIP, Start);
+    if Index = 0 then
+      IPv4ErrorFmt(SInvalidIPv4Value, S);
+    Count := Index - Start + 1;
+    SGroup := Copy(SIP, Start, Count - 1);
+    if TryStrToInt(SGroup, G) and (G >= Low(Word)) and (G <= High(Word)) then
+        Result.Groups[I] := G
+      else
+        Result.Groups[I] := 0;
+    Inc(Start, Count);
+  end;
+end;
+
+function TryVarToIPv4(const AValue: Variant; out AIPv4: TIPv4): Boolean;
+begin
+  try
+    AIPv4 := VarToIPv4(AValue);
+    Result := True;
+  except
+    Result := False;
+  end;
+end;
+
+function VarIsIPv4(const AValue: Variant): Boolean;
+begin
+  Result := VarType(AValue) = IPv4VariantType.VarType;
+end;
+
+function VarToIPv4(const AValue: Variant): TIPv4;
+begin
+  if VarIsIPv4(AValue) then
+    Result := TIPv4VarData(AValue).VIPv4
+  else
+    case VarType(AValue) of
+      varByte:
+        Result.Value := TVarData(AValue).VByte;
+      varDouble:
+        Result := DoubleToIPv4(TVarData(AValue).VDouble);
+      varLongWord:
+        Result.Value := TVarData(AValue).VLongWord;
+      varSingle:
+        Result := SingleToIPv4(TVarData(AValue).VSingle);
+      varString,
+      varOleStr:
+        Result := StrToIPv4(AValue);
+      varWord:
+        Result.Value := TVarData(AValue).VWord;
+    else
+      IPv4Error(SInvalidIPv4FormatType);
+    end;
+end;
+
 function IPv4Compare(const AIPv41, AIPv42: TIPv4): Integer;
 begin
   if AIPv41.Value = AIPv42.Value then
@@ -629,12 +806,44 @@ begin
     Result := 1;
 end;
 
+procedure IPv4ToBits(const AIPv4: TIPv4; ABits: TBits);
+var
+  I: Integer;
+begin
+  if ABits <> nil then
+  begin
+    ABits.Size := IPv4BitSize;
+    for I := 0 to IPv4BitSize - 1 do
+      ABits[IPv4BitSize - I - 1] := AIPv4.Value and (1 shl I) <> 0;
+  end;
+end;
+
+function IPv4ToCardinal(const AIPv4: TIPv4): Cardinal;
+begin
+  Result := AIPv4.Value;
+end;
+
+function IPv4ToDouble(const AIPv4: TIPv4): Double;
+begin
+  Result := AIPv4.Value / High(Cardinal);
+end;
+
+function IPv4ToExtended(const AIPv4: TIPv4): Extended;
+begin
+  Result := AIPv4.Value / High(Cardinal);
+end;
+
 function IPv4ToIPv6(const AIPv4: TIPv4): TIPv6;
 begin
-  FillChar(Result, 5 * SizeOf(Word), 0);
+  FillChar(Result.E, 5 * SizeOf(Word), 0);
   Result.F := $FFFF;
   Result.G := AIPv4.A shl 8 + AIPv4.B;
   Result.H := AIPv4.C shl 8 + AIPv4.D;
+end;
+
+function IPv4ToSingle(const AIPv4: TIPv4): Single;
+begin
+  Result := AIPv4.Value / High(Cardinal);
 end;
 
 function IPv4ToStr(const AIPv4: TIPv4): String;
@@ -672,6 +881,197 @@ begin
   TIPv4VarData(Result).VIPv4 := AIPv4;
 end;
 
+function DoubleToIPv6(const AValue: Double): TIPv6;
+begin
+  Result := ExtendedToIPv6(AValue);
+end;
+
+function ExtendedToIPv6(const AValue: Extended): TIPv6;
+var
+  I: T8;
+  OrdValue: Extended;
+  G: Extended;
+  D: Extended;
+begin
+  OrdValue := AValue * IPv6MaxOrdValue;
+  D := Power(High(Word) + 1, High(T8));
+  for I := High(T8) downto Low(T8) do
+  begin
+    G := OrdValue / D;
+    Result.Groups[I] := Trunc(G);
+    OrdValue := Frac(G) * D;
+    D := Power(High(Word) + 1, I - 1);
+  end;
+end;
+
+function SingleToIPv6(const AValue: Single): TIPv6;
+begin
+  Result := ExtendedToIPv6(AValue);
+end;
+
+function StrToIPv6(const S: String): TIPv6;
+{ Valid examples for S:
+  2001:0db8:85a3:0000:0000:8a2e:0370:7334
+  2001:db8:85a3:0:0:8a2e:370:7334
+  2001:db8:85a3::8a2e:370:7334
+  ::8a2e:370:7334
+  2001:db8:85a3::
+  ::1
+  ::
+  ::ffff:c000:280
+  ::ffff:192.0.2.128 }
+var
+  ZeroPos: Integer;
+  DotPos: Integer;
+  SIP: String;
+  Start: Integer;
+  Index: Integer;
+  Count: Integer;
+  SGroup: String;
+  G: Integer;
+
+  procedure NormalNotation;
+  var
+    I: T8;
+  begin
+    SIP := S + ':';
+    Start := 1;
+    for I := High(T8) downto Low(T8) do
+    begin
+      Index := PosEx(':', SIP, Start);
+      if Index = 0 then
+        IPv6ErrorFmt(SInvalidIPv6Value, S);
+      Count := Index - Start + 1;
+      SGroup := '$' + Copy(SIP, Start, Count - 1);
+      if not TryStrToInt(SGroup, G) or (G > High(Word)) or (G < 0) then
+        IPv6ErrorFmt(SInvalidIPv6Value, S);
+      Result.Groups[I] := G;
+      Inc(Start, Count);
+    end;
+  end;
+
+  procedure CompressedNotation;
+  var
+    I: T8;
+    A: array of Word;
+  begin
+    SIP := S + ':';
+    Start := 1;
+    I := High(T8);
+    while Start < ZeroPos do
+    begin
+      Index := PosEx(':', SIP, Start);
+      if Index = 0 then
+        IPv6ErrorFmt(SInvalidIPv6Value, S);
+      Count := Index - Start + 1;
+      SGroup := '$' + Copy(SIP, Start, Count - 1);
+      if not TryStrToInt(SGroup, G) or (G > High(Word)) or (G < 0) then
+        IPv6ErrorFmt(SInvalidIPv6Value, S);
+      Result.Groups[I] := G;
+      Inc(Start, Count);
+      Dec(I);
+    end;
+    FillChar(Result.H, (I + 1) * SizeOf(Word), 0);
+    if ZeroPos < (Length(S) - 1) then
+    begin
+      SetLength(A, I + 1);
+      Start := ZeroPos + 2;
+      repeat
+        Index := PosEx(':', SIP, Start);
+        if Index > 0 then
+        begin
+          Count := Index - Start + 1;
+          SGroup := '$' + Copy(SIP, Start, Count - 1);
+          if not TryStrToInt(SGroup, G) or (G > High(Word)) or (G < 0) then
+            IPv6ErrorFmt(SInvalidIPv6Value, S);
+          A[I] := G;
+          Inc(Start, Count);
+          Dec(I);
+        end;
+      until Index = 0;
+      Inc(I);
+      Count := Length(A) - I;
+      Move(A[I], Result.H, Count * SizeOf(Word));
+    end;
+  end;
+
+  procedure DottedQuadNotation;
+  var
+    I: T4;
+  begin
+    if UpperCase(Copy(S, ZeroPos + 2, 4)) <> 'FFFF' then
+      IPv6ErrorFmt(SInvalidIPv6Value, S);
+    FillChar(Result.E, 5 * SizeOf(Word), 0);
+    Result.F := $FFFF;
+    SIP := S + '.';
+    Start := ZeroPos + 7;
+    for I := Low(T4) to High(T4) do
+    begin
+      Index := PosEx('.', SIP, Start);
+      if Index = 0 then
+        IPv6ErrorFmt(SInvalidIPv6Value, S);
+      Count := Index - Start + 1;
+      SGroup := Copy(SIP, Start, Count - 1);
+      if not TryStrToInt(SGroup, G) or (G > High(Byte)) or (G < 0) then
+        IPv6ErrorFmt(SInvalidIPv6Value, S);
+      case I of
+        0: Result.G := G shl 8;
+        1: Inc(Result.G, G);
+        2: Result.H := G shl 8;
+        3: Inc(Result.H, G);
+      end;
+      Inc(Start, Count);
+    end;
+  end;
+
+begin
+  ZeroPos := Pos('::', S);
+  if ZeroPos = 0 then
+    NormalNotation
+  else
+  begin
+    DotPos := Pos('.', S);
+    if DotPos = 0 then
+      CompressedNotation
+    else
+      DottedQuadNotation;
+  end;
+end;
+
+function TryVarToIPv6(const AValue: Variant; out AIPv6: TIPv6): Boolean;
+begin
+  try
+    AIPv6 := VarToIPv6(AValue);
+    Result := True;
+  except
+    Result := False;
+  end;
+end;
+
+function VarIsIPv6(const AValue: Variant): Boolean;
+begin
+  Result := VarType(AValue) = IPv6VariantType.VarType;
+end;
+
+function VarToIPv6(const AValue: Variant): TIPv6;
+begin
+  if VarIsIPv6(AValue) then
+    Result := TIPv6VarData(AValue).VIPv6.IPv6
+  else
+    case VarType(AValue) of
+      varDouble:
+        Result := DoubleToIPv6(TVarData(AValue).VDouble);
+      varOleStr:
+        Result := StrToIPv6(AValue);
+      varSingle:
+        Result := SingleToIPv6(TVarData(AValue).VSingle);
+      varString:
+        Result := StrToIPv6(String(TVarData(AValue).VString));
+    else
+      IPv6Error(SInvalidIPv6FormatType);
+    end;
+end;
+
 function IPv6Compare(const AIPv61, AIPv62: TIPv6): Integer;
 var
   I: T8;
@@ -689,12 +1089,33 @@ begin
 end;
 
 procedure IPv6ToBits(const AIPv6: TIPv6; ABits: TBits);
+var
+  I: Integer;
+  GroupBitSize: Integer;
 begin
   if ABits <> nil then
   begin
     ABits.Size := IPv6BitSize;
-    //TODO:
+    GroupBitSize := IPv6BitSize div Length(AIPv6.Groups);
+    for I := 0 to IPv6BitSize - 1 do
+      ABits[IPv6BitSize - I - 1] :=
+        AIPv6.Groups[I div GroupBitSize] and (1 shl (I mod GroupBitSize)) <> 0;
   end;
+end;
+
+function IPv6ToDouble(const AIPv6: TIPv6): Double;
+begin
+  Result := IPv6ToExtended(AIPv6);
+end;
+
+function IPv6ToExtended(const AIPv6: TIPv6): Extended;
+var
+  I: T8;
+begin
+  Result := 0;
+  for I := High(T8) downto Low(T8) do
+    Result := Result * (High(Word) + 1) + AIPv6.Groups[I];
+  Result := Result / IPv6MaxOrdValue;
 end;
 
 function IPv6ToIPv4(const AIPv6: TIPv6): TIPv4;
@@ -703,6 +1124,11 @@ begin
     if (A > 0) or (B > 0) or (C > 0) or (D > 0) or (E > 0) or (F < $FFFF) then
       IPv6Error(SInvalidIPv6FormatType);
   Move(AIPv6.G, Result, 2 * SizeOf(Word));
+end;
+
+function IPv6ToSingle(const AIPv6: TIPv6): Single;
+begin
+  Result := IPv6ToExtended(AIPv6);
 end;
 
 function IPv6ToStr(const AIPv6: TIPv6): String;
@@ -719,11 +1145,11 @@ var
 begin
   Result := '';
   Zeroed := False;
-  for I := Low(T8) to High(T8) do
+  for I := High(T8) downto Low(T8) do
   begin
     if AIPv6.Groups[I] = 0 then
     begin
-      if (I = High(T8)) then
+      if (I = Low(T8)) then
         Result := Result + ':';
       if not Zeroed then
       begin
@@ -732,7 +1158,7 @@ begin
       end;
     end
     else
-      if (I = Low(T8)) and not Zeroed then
+      if (I = High(T8)) and not Zeroed then
         Result := Result + Format('%x', [AIPv6.Groups[I]])
       else
         Result := Result + Format(':%x', [AIPv6.Groups[I]]);
@@ -764,143 +1190,47 @@ begin
   Result := VarIPv6Create(AIPv6);
 end;
 
-function StrToIPv4(const S: String): TIPv4;
+function IPv6AddOp(const Left, Right: TIPv6): TIPv6;
 var
-  SIP: String;
-  Start: Integer;
-  I: T4;
-  Index: Integer;
-  Count: Integer;
-  SGroup: String;
-  G: Integer;
-begin
-  SIP := S + '.';
-  Start := 1;
-  for I := High(T4) downto Low(T4) do
-  begin
-    Index := PosEx('.', SIP, Start);
-    if Index = 0 then
-      IPv4ErrorFmt(SInvalidIPv4Value, S);
-    Count := Index - Start + 1;
-    SGroup := Copy(SIP, Start, Count - 1);
-    if TryStrToInt(SGroup, G) and (G >= Low(Word)) and (G <= High(Word)) then
-        Result.Groups[I] := G
-      else
-        Result.Groups[I] := 0;
-    Inc(Start, Count);
-  end;
-end;
-
-function StrToIPv6(const S: String): TIPv6;
-{ Valid examples for S:
-  2001:0db8:85a3:0000:0000:8a2e:0370:7334
-  2001:db8:85a3:0:0:8a2e:370:7334
-  2001:db8:85a3::8a2e:370:7334
-  ::8a2e:370:7334
-  2001:db8:85a3::
-  ::1
-  ::
-  ::ffff:c000:280
-  ::ffff:192.0.2.128 }
-var
-  ZPos: Integer;
-  SIP: String;
-  Start: Integer;
   I: T8;
-  Index: Integer;
-  Count: Integer;
-  SGroup: String;
-  G: Integer;
+  Sum: Integer;
+  Remain: Word;
 begin
-  ZPos := Pos('::', S);
-  if ZPos = 0 then
+  Remain :=  0;
+  for I := Low(T8) to High(T8) do
   begin
-    SIP := S + ':';
-    Start := 1;
-    for I := High(T8) downto Low(T8) do
+    Sum := Remain + Left.Groups[I] + Right.Groups[I];
+    Result.Groups[I] := Sum mod (High(Word) + 1);
+    Remain := Sum div (High(Word) + 1);
+  end;
+end;
+
+function IPv6SubtractOp(const Left, Right: TIPv6): TIPv6;
+var
+  I: T8;
+  Sum: Integer;
+  Lost: Word;
+begin
+  Lost := 0;
+  for I := Low(T8) to High(T8) do
+  begin
+    Sum := Left.Groups[I] - Right.Groups[I] - Lost;
+    Lost := 0;
+    while Sum < 0 do
     begin
-      Index := PosEx(':', SIP, Start);
-      if Index = 0 then
-        IPv6ErrorFmt(SInvalidIPv6Value, S);
-      Count := Index - Start + 1;
-      SGroup := '$' + Copy(SIP, Start, Count - 1);
-      if TryStrToInt(SGroup, G) and (G >= Low(Word)) and (G <= High(Word)) then
-        Result.Groups[I] := G
-      else
-        Result.Groups[I] := 0;
-      Inc(Start, Count);
+      Inc(Sum, High(Word) + 1);
+      Inc(Lost);
     end;
-  end
-  else
-    //TODO:
-    ;
-end;
-
-function TryVarToIPv4(const AValue: Variant; out AIPv4: TIPv4): Boolean;
-begin
-  try
-    AIPv4 := VarToIPv4(AValue);
-    Result := True;
-  except
-    Result := False;
+    Result.Groups[I] := Sum;
   end;
-end;
-
-function TryVarToIPv6(const AValue: Variant; out AIPv6: TIPv6): Boolean;
-begin
-  try
-    AIPv6 := VarToIPv6(AValue);
-    Result := True;
-  except
-    Result := False;
-  end;
-end;
-
-function VarIsIPv4(const AValue: Variant): Boolean;
-begin
-  Result := VarType(AValue) = IPv4VariantType.VarType;
-end;
-
-function VarIsIPv6(const AValue: Variant): Boolean;
-begin
-  Result := VarType(AValue) = IPv6VariantType.VarType;
-end;
-
-function VarToIPv4(const AValue: Variant): TIPv4;
-begin
-  if VarIsIPv4(AValue) then
-    Result := TIPv4VarData(AValue).VIPv4
-  else
-    case VarType(AValue) of
-      varString, varOleStr:
-        Result := StrToIPv4(AValue);
-      varLongWord:
-        Result.Value := TVarData(AValue).VLongWord;
-      varByte:
-        Result.Value := TVarData(AValue).VByte;
-      varWord:
-        Result.Value := TVarData(AValue).VWord;
-    else
-      IPv4Error(SInvalidIPv4FormatType);
-    end;
-end;
-
-function VarToIPv6(const AValue: Variant): TIPv6;
-begin
-  if VarIsIPv6(AValue) then
-    Result := TIPv6VarData(AValue).VIPv6.IPv6
-  else
-    case VarType(AValue) of
-      varString, varOleStr:
-        Result := StrToIPv6(AValue);
-    else
-      IPv6Error(SInvalidIPv6FormatType);
-    end;
+  if Lost > 0 then
+    Result := ZeroIPv6;
 end;
 
 initialization
   IPv4VariantType := TIPv4VariantType.Create;
   IPv6VariantType := TIPv6VariantType.Create;
+  IPv6MaxOrdValue := Power(High(Word) + 1, High(T8) + 1) - 1;
 
 finalization
   FreeAndNil(IPv4VariantType);
