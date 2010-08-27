@@ -145,6 +145,11 @@ type
   end;
 
   TIPv6VariantType = class(TInvokeableVariantType)
+  protected
+    function LeftPromotion(const V: TVarData; const Operator: TVarOp;
+      out RequiredVarType: Word): Boolean; override;
+    function RightPromotion(const V: TVarData; const Operator: TVarOp;
+      out RequiredVarType: Word): Boolean; override;
   public
     procedure BinaryOp(var Left: TVarData; const Right: TVarData;
       const Operator: TVarOp); override;
@@ -526,6 +531,19 @@ begin
       inherited BinaryOp(Left, Right, Operator);
     end;
   end
+  else if (Left.VType = VarType) and (Operator = opAdd) and
+    VarDataIsStr(Right) then
+  begin
+    Left.VType := varString;
+    String(Left.VString) := IPv6ToStr(TIPv6VarData(Left).VIPv6.IPv6) +
+      VarDataToStr(Right);
+  end
+  else if (Right.VType = VarType) and (Operator = opAdd) and
+    VarDataIsStr(Left) then
+  begin
+    VarDataFromStr(Left,
+      VarDataToStr(Left) + IPv6ToStr(TIPv6VarData(Right).VIPv6.IPv6));
+  end
   else
     inherited BinaryOp(Left, Right, Operator);
 end;
@@ -650,6 +668,30 @@ begin
     Variant(Dest) := TIPv6VarData(V).VIPv6.AsStringOutwritten
   else
     Result := inherited GetProperty(Dest, V, Name);
+end;
+
+function TIPv6VariantType.LeftPromotion(const V: TVarData;
+  const Operator: TVarOp; out RequiredVarType: Word): Boolean;
+begin
+  if (Operator = opAdd) and VarDataIsStr(V) then
+  begin
+    RequiredVarType := V.VType;
+    Result := True;
+  end
+  else
+    Result := inherited LeftPromotion(V, Operator, RequiredVarType);
+end;
+
+function TIPv6VariantType.RightPromotion(const V: TVarData;
+  const Operator: TVarOp; out RequiredVarType: Word): Boolean;
+begin
+  if (Operator = opAdd) and VarDataIsStr(V) then
+  begin
+    RequiredVarType := V.VType;
+    Result := True;
+  end
+  else
+    Result := inherited RightPromotion(V, Operator, RequiredVarType);
 end;
 
 function TIPv6VariantType.SetProperty(const V: TVarData; const Name: String;
