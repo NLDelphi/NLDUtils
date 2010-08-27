@@ -11,7 +11,7 @@
 {                                                                             }
 { Last edit by: Albert de Weerd                                               }
 { Date: August 27, 2010                                                       }
-{ Version: 1.1                                                                }
+{ Version: 1.2                                                                }
 {                                                                             }
 { *************************************************************************** }
 
@@ -107,7 +107,10 @@ function IPv6ToURL(const AIPv6: TIPv6; const Protocol: String = DefProtocol;
 function IPv6ToVar(const AIPv6: TIPv6): Variant;
 
 function IPv6AddOp(const Left, Right: TIPv6): TIPv6;
+function IPv6AndOp(const Left, Right: TIPv6): TIPv6;
+function IPv6OrOp(const Left, Right: TIPv6): TIPv6;
 function IPv6SubtractOp(const Left, Right: TIPv6): TIPv6;
+function IPv6XorOp(const Left, Right: TIPv6): TIPv6;
 
 const
   ZeroIPv4: TIPv4 = (D: 0; C: 0; B: 0; A: 0);
@@ -500,17 +503,31 @@ end;
 
 procedure TIPv6VariantType.BinaryOp(var Left: TVarData; const Right: TVarData;
   const Operator: TVarOp);
+var
+  L: TIPv6Object;
+  R: TIPv6Object;
 begin
-  case Operator of
-    opAdd:
-      with TIPv6VarData(Left).VIPv6 do
-        IPv6 := IPv6AddOp(IPv6, TIPv6VarData(Right).VIPv6.IPv6);
-    opSubtract:
-      with TIPv6VarData(Left).VIPv6 do
-        IPv6 := IPv6SubtractOp(IPv6, TIPv6VarData(Right).VIPv6.IPv6);
+  if (Left.VType = VarType) and (Right.VType = VarType) then
+  begin
+    L := TIPv6VarData(Left).VIPv6;
+    R := TIPv6VarData(Right).VIPv6;
+    case Operator of
+      opAdd:
+        L.IPv6 := IPv6AddOp(L.IPv6, R.IPv6);
+      opAnd:
+        L.IPv6 := IPv6AndOp(L.IPv6, R.IPv6);
+      opOr:
+        L.IPv6 := IPv6OrOp(L.IPv6, R.IPv6);
+      opSubtract:
+        L.IPv6 := IPv6SubtractOp(L.IPv6, R.IPv6);
+      opXor:
+        L.IPv6 := IPv6XorOp(L.IPv6, R.IPv6);
+    else
+      inherited BinaryOp(Left, Right, Operator);
+    end;
+  end
   else
     inherited BinaryOp(Left, Right, Operator);
-  end;
 end;
 
 procedure TIPv6VariantType.Cast(var Dest: TVarData; const Source: TVarData);
@@ -1190,6 +1207,8 @@ begin
   Result := VarIPv6Create(AIPv6);
 end;
 
+{ IPv6 variant binary operation routines }
+
 function IPv6AddOp(const Left, Right: TIPv6): TIPv6;
 var
   I: T8;
@@ -1205,6 +1224,22 @@ begin
   end;
 end;
 
+function IPv6AndOp(const Left, Right: TIPv6): TIPv6;
+var
+  I: T8;
+begin
+  for I := Low(T8) to High(T8) do
+    Result.Groups[I] := Left.Groups[I] and Right.Groups[I];
+end;
+
+function IPv6OrOp(const Left, Right: TIPv6): TIPv6;
+var
+  I: T8;
+begin
+  for I := Low(T8) to High(T8) do
+    Result.Groups[I] := Left.Groups[I] or Right.Groups[I];
+end;
+
 function IPv6SubtractOp(const Left, Right: TIPv6): TIPv6;
 var
   I: T8;
@@ -1215,16 +1250,25 @@ begin
   for I := Low(T8) to High(T8) do
   begin
     Sum := Left.Groups[I] - Right.Groups[I] - Lost;
-    Lost := 0;
-    while Sum < 0 do
+    if Sum < 0 then
     begin
       Inc(Sum, High(Word) + 1);
-      Inc(Lost);
-    end;
+      Lost := 1;
+    end
+    else
+      Lost := 0;
     Result.Groups[I] := Sum;
   end;
   if Lost > 0 then
     Result := ZeroIPv6;
+end;
+
+function IPv6XorOp(const Left, Right: TIPv6): TIPv6;
+var
+  I: T8;
+begin
+  for I := Low(T8) to High(T8) do
+    Result.Groups[I] := Left.Groups[I] xor Right.Groups[I];
 end;
 
 initialization
