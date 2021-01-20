@@ -1,11 +1,21 @@
-unit AwMemLeak;
+{ *************************************************************************** }
+{                                                                             }
+{ NLDMemLeak  -  www.nldelphi.com Open Source Delphi runtime library          }
+{                                                                             }
+{ Initiator: Albert de Weerd (aka NGLN)                                       }
+{ License: Free to use, free to modify                                        }
+{ GitHub path: https://github.com/NLDelphi/NLDUtils/blob/main/NLDMemLeak.pas  }
+{                                                                             }
+{ *************************************************************************** }
+
+unit NLDMemLeak;
 
 interface
 
 implementation
 
 uses
-  Windows, SysUtils;
+  Winapi.Windows, SysUtils;
 
 var
   StartMem: Cardinal;

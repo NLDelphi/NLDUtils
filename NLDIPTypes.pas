@@ -1,26 +1,21 @@
 { *************************************************************************** }
 {                                                                             }
-{ IPTypes  -  www.nldelphi.com Open Source Delphi runtime library             }
+{ NLDIPTypes  -  www.nldelphi.com Open Source Delphi runtime library          }
 {                                                                             }
 { Initiator: Albert de Weerd (aka NGLN)                                       }
 { License: Free to use, free to modify                                        }
 { Website: None                                                               }
-{ SVN path: http://svn.nldelphi.com/nldelphi/opensource/ngln/                 }
-{                                                                             }
-{ *************************************************************************** }
-{                                                                             }
-{ Last edit by: Albert de Weerd                                               }
-{ Date: August 27, 2010                                                       }
-{ Version: 1.2                                                                }
+{ GitHub path: https://github.com/NLDelphi/NLDUtils/blob/main/NLDIPTypes.pas  }
 {                                                                             }
 { *************************************************************************** }
 
-unit IPTypes;
+unit NLDIPTypes;
 
 interface
 
 uses
-  Classes, Variants, TypInfo, SysUtils, StrUtils, ShellAPI, Windows, Math;
+  Classes, Winapi.Windows, Variants, TypInfo, SysUtils, StrUtils, ShellAPI,
+  Math;
 
 const
   IPv4BitSize = SizeOf(Byte) * 4 * 8;
@@ -198,8 +193,8 @@ type
     constructor Create(const AIPv6: TIPv6); overload;
     constructor Create(AIPv6Object: TIPv6Object); overload;
     constructor Create(const S: String); overload;
-    function Equals(const AValue: Variant): Boolean; overload;
-    function Equals(const AIPv6: TIPv6): Boolean; overload;
+    function Equals(const AValue: Variant): Boolean; reintroduce; overload;
+    function Equals(const AIPv6: TIPv6): Boolean; reintroduce; overload;
     function Group(Index: T8): Word;
     procedure Follow;
     function IsZero: Boolean;
